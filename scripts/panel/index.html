@@ -1594,7 +1594,14 @@ async function loadDashboard() {
     const ramUsed = status.ram_used || 0;
     const ramTotal = status.ram_total || 4096;
     const tps = status.tps || 20;
-    const players = status.players || [];
+    let players = status.players || [];
+    // If players is not an array, fetch from /players endpoint
+    if (!Array.isArray(players)) {
+      try {
+        const playersData = await apiGet('/api/servers/' + SERVER_ID + '/players');
+        players = (playersData && Array.isArray(playersData.players)) ? playersData.players : (Array.isArray(playersData) ? playersData : []);
+      } catch(e) { players = []; }
+    }
     const uptime = status.uptime || '';
 
     // Status banner
@@ -1679,12 +1686,14 @@ async function loadRecentLogs() {
   try {
     const data = await apiGet('/api/servers/' + SERVER_ID + '/logs');
     const div = document.getElementById('dash-logs');
-    if (data && data.log) {
-      const lines = data.log.split('\n').slice(-10);
-      if (lines.length === 0 || (lines.length === 1 && lines[0] === '')) {
+    const rawLines = data.lines || (data.log ? data.log.split('\n') : []);
+    if (rawLines && rawLines.length > 0) {
+      const lines = Array.isArray(rawLines) ? rawLines : rawLines.split('\n');
+      const last10 = lines.slice(-10);
+      if (last10.length === 0 || (last10.length === 1 && last10[0] === '')) {
         div.innerHTML = '<div class="text-muted" style="font-size:12px">No recent logs</div>';
       } else {
-        div.innerHTML = lines.map(function(line) {
+        div.innerHTML = last10.map(function(line) {
           let cls = 'log-line';
           if (line.toLowerCase().includes('error') || line.toLowerCase().includes('exception') || line.toLowerCase().includes('fatal')) cls += ' log-error';
           else if (line.toLowerCase().includes('warn') || line.toLowerCase().includes('warning')) cls += ' log-warn';
@@ -1721,8 +1730,9 @@ function serverAction(action) {
 async function loadConsole() {
   try {
     const data = await apiGet('/api/servers/' + SERVER_ID + '/console');
-    if (data && data.log) {
-      const lines = data.log.split('\n');
+    const logText = data.logs || data.log || '';
+    if (logText) {
+      const lines = logText.split('\n');
       CONSOLE_LINES = lines;
       renderConsole();
     }
@@ -2007,22 +2017,18 @@ async function loadPlugins() {
   try {
     const data = await apiGet('/api/servers/' + SERVER_ID + '/plugins');
     const div = document.getElementById('installed-plugins-list');
-    if (data && Array.isArray(data)) {
-      const plugins = data;
-      if (plugins.length === 0) {
-        div.innerHTML = '<div class="empty-state"><i data-lucide="package"></i><p>No plugins installed</p></div>';
-      } else {
-        div.innerHTML = plugins.map(function(p) {
-          const name = typeof p === 'string' ? p : (p.name || 'Unknown');
-          return '<div class="installed-plugin">' +
-            '<div class="installed-plugin-name"><i data-lucide="archive"></i>' + escapeHtml(name) + '</div>' +
-            '<div style="display:flex;gap:4px">' +
-            '<button class="btn btn-danger btn-sm" onclick="deletePlugin(\'' + escapeHtml(name) + '\')"><i data-lucide="trash-2" style="width:12px;height:12px"></i> Delete</button>' +
-            '</div></div>';
-        }).join('');
-      }
-    } else {
+    const plugins = (data && Array.isArray(data.plugins)) ? data.plugins : (Array.isArray(data) ? data : []);
+    if (plugins.length === 0) {
       div.innerHTML = '<div class="empty-state"><i data-lucide="package"></i><p>No plugins installed</p></div>';
+    } else {
+      div.innerHTML = plugins.map(function(p) {
+        const name = typeof p === 'string' ? p : (p.name || 'Unknown');
+        return '<div class="installed-plugin">' +
+          '<div class="installed-plugin-name"><i data-lucide="archive"></i>' + escapeHtml(name) + '</div>' +
+          '<div style="display:flex;gap:4px">' +
+          '<button class="btn btn-danger btn-sm" onclick="deletePlugin(\'' + escapeHtml(name) + '\')"><i data-lucide="trash-2" style="width:12px;height:12px"></i> Delete</button>' +
+          '</div></div>';
+      }).join('');
     }
     lucide.createIcons();
   } catch(e) {
@@ -2129,7 +2135,7 @@ async function loadPlayers() {
     const data = await apiGet('/api/servers/' + SERVER_ID + '/players');
     const div = document.getElementById('online-players-list');
     const count = document.getElementById('online-player-count');
-    const players = Array.isArray(data) ? data : [];
+    const players = (data && Array.isArray(data.players)) ? data.players : (Array.isArray(data) ? data : []);
     count.textContent = players.length;
 
     if (players.length === 0) {
@@ -2154,7 +2160,7 @@ async function loadPlayers() {
   try {
     const data = await apiGet('/api/servers/' + SERVER_ID + '/banned');
     const div = document.getElementById('banned-players-list');
-    const banned = Array.isArray(data) ? data : [];
+    const banned = (data && Array.isArray(data.banned)) ? data.banned : (Array.isArray(data) ? data : []);
     if (banned.length === 0) {
       div.innerHTML = '<div class="text-muted" style="font-size:12px;text-align:center;padding:16px">No banned players</div>';
     } else {
@@ -2172,7 +2178,7 @@ async function loadPlayers() {
   try {
     const data = await apiGet('/api/servers/' + SERVER_ID + '/ops');
     const div = document.getElementById('op-players-list');
-    const ops = Array.isArray(data) ? data : [];
+    const ops = (data && Array.isArray(data.ops)) ? data.ops : (Array.isArray(data) ? data : []);
     if (ops.length === 0) {
       div.innerHTML = '<div class="text-muted" style="font-size:12px;text-align:center;padding:16px">No OP players</div>';
     } else {
@@ -2258,7 +2264,7 @@ async function loadSettings() {
   try {
     const data = await apiGet('/api/servers/' + SERVER_ID + '/properties');
     if (data) {
-      SERVER_PROPERTIES = data;
+      SERVER_PROPERTIES = data.properties || data;
       renderProperties();
     }
   } catch(e) {
@@ -2313,7 +2319,7 @@ async function loadSchedules() {
   try {
     const data = await apiGet('/api/servers/' + SERVER_ID + '/schedules');
     const div = document.getElementById('schedule-list');
-    const schedules = Array.isArray(data) ? data : [];
+    const schedules = (data && Array.isArray(data.schedules)) ? data.schedules : (Array.isArray(data) ? data : []);
 
     if (schedules.length === 0) {
       div.innerHTML = '<div class="empty-state"><i data-lucide="clock"></i><p>No scheduled tasks</p></div>';
